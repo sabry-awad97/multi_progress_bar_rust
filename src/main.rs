@@ -1,38 +1,29 @@
-use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
-use std::thread::{self, sleep};
+use indicatif::{MultiProgress, ProgressBar};
+use std::thread;
 use std::time::Duration;
 
 fn main() {
-    let mpb = MultiProgress::new();
-    let pb_style = ProgressStyle::default_bar()
-        .template("{percent:>3}% [{bar:50}] {elapsed_precise}")
-        .unwrap()
-        .progress_chars("#>-");
+    let multi_progress = MultiProgress::new();
 
-    let mut handles = vec![];
+    let pb1 = multi_progress.add(ProgressBar::new(100));
+    let pb2 = multi_progress.add(ProgressBar::new(200));
 
-    for i in 1..=10 {
-        let pb = mpb.add(ProgressBar::new(100));
-        pb.set_style(pb_style.clone());
-        let handle = thread::spawn(move || {
-            pb.tick();
-            sleep(Duration::from_millis(500));
+    let t1 = thread::spawn(move || {
+        for i in 0..100 {
+            pb1.set_position(i);
+            thread::sleep(Duration::from_millis(50));
+        }
+        pb1.finish();
+    });
 
-            let current_progress = (i * 10) as u64;
-            while pb.position() < current_progress {
-                pb.inc(1);
-                sleep(Duration::from_millis(50));
-            }
-        });
-        handles.push(handle);
-    }
+    let t2 = thread::spawn(move || {
+        for i in 0..200 {
+            pb2.set_position(i);
+            thread::sleep(Duration::from_millis(25));
+        }
+        pb2.finish();
+    });
 
-    for handle in handles {
-        handle.join().unwrap();
-    }
-
-    // Clear the terminal and display progress bars
-    // print!("\x1B[2J\x1B[1;1H"); // Clear the terminal
-
-    println!("All tasks completed!");
+    t1.join().unwrap();
+    t2.join().unwrap();
 }
