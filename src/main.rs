@@ -1,6 +1,5 @@
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use log::{debug, info};
-use std::sync::mpsc::{channel, Receiver};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
@@ -135,6 +134,25 @@ impl TaskRunner {
             handle.join().unwrap();
         }
     }
+
+    fn run_parallel(&self) {
+        let handles: Vec<_> = self
+            .tasks
+            .clone()
+            .into_iter()
+            .map(|t| {
+                thread::spawn(move || {
+                    debug!("Starting task: {}", t.message);
+                    t.run();
+                    debug!("Completed task: {}", t.message);
+                })
+            })
+            .collect();
+
+        for handle in handles {
+            handle.join().unwrap();
+        }
+    }
 }
 
 fn main() {
@@ -144,7 +162,7 @@ fn main() {
     task_runner.add_task("Download Task 2".to_string(), 75, TaskType::Download);
 
     env_logger::init();
-    task_runner.run_all();
+    task_runner.run_parallel();
 
     info!("All tasks completed");
 }
