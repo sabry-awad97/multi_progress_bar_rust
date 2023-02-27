@@ -5,17 +5,18 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
+#[derive(Clone)]
 enum TaskType {
     Download,
     Generic,
 }
 
+#[derive(Clone)]
 struct Task {
     progress_bar: ProgressBar,
     message: String,
     task_type: TaskType,
-    error: Option<String>,           // New field to store an error message
-    cancel_rx: Option<Receiver<()>>, // New field to store a cancellation receiver
+    error: Option<String>, // New field to store an error message
 }
 
 impl Task {
@@ -43,7 +44,6 @@ impl Task {
             message,
             task_type,
             error: None,
-            cancel_rx: None,
         }
     }
 
@@ -64,11 +64,6 @@ impl Task {
         self.progress_bar.set_message(self.message.clone());
     }
 
-    // New method to set a cancellation receiver
-    fn set_cancellation(&mut self, cancel_rx: Receiver<()>) {
-        self.cancel_rx = Some(cancel_rx);
-    }
-
     fn run(&self) {
         match self.task_type {
             TaskType::Download => {
@@ -76,12 +71,6 @@ impl Task {
                     if self.error.is_some() {
                         // If an error occurred, break out of the loop
                         break;
-                    }
-                    if self.cancel_rx.is_some() {
-                        // If a cancellation signal is received, break out of the loop
-                        if self.cancel_rx.as_ref().unwrap().try_recv().is_ok() {
-                            break;
-                        }
                     }
                     self.progress_bar.set_position(i);
                     thread::sleep(Duration::from_millis(50));
@@ -100,50 +89,62 @@ impl Task {
             self.progress_bar
                 .finish_with_message(format!("{} finished", self.message));
         }
+    }
+}
 
-        if let Some(_) = &self.cancel_rx {
-            self.progress_bar
-                .finish_with_message(format!("{} cancelled", self.message));
-        } else {
-            self.progress_bar
-                .finish_with_message(format!("{} finished", self.message));
+struct TaskRunner {
+    multi_progress: MultiProgress,
+    tasks: Vec<Task>,
+}
+
+impl TaskRunner {
+    fn new() -> Self {
+        Self {
+            multi_progress: MultiProgress::new(),
+            tasks: vec![],
+        }
+    }
+
+    fn add_task(&mut self, message: String, total: u64, task_type: TaskType) {
+        let task = Task::new(&self.multi_progress, message, total, task_type);
+        self.tasks.push(task);
+    }
+
+    fn run_all(&self) {
+        let shared_tasks = Arc::new(Mutex::new(self.tasks.clone()));
+        let (tx, rx) = std::sync::mpsc::channel();
+        let handles: Vec<_> = (0..shared_tasks.lock().unwrap().len())
+            .map(|i| {
+                let shared_tasks = shared_tasks.clone();
+                let tx = tx.clone();
+                thread::spawn(move || {
+                    let task = &shared_tasks.lock().unwrap()[i];
+                    debug!("Starting task: {}", task.message);
+                    task.run();
+                    debug!("Completed task: {}", task.message);
+                    tx.send(i).unwrap();
+                })
+            })
+            .collect();
+
+        for _ in 0..handles.len() {
+            rx.recv().unwrap();
+        }
+
+        for handle in handles {
+            handle.join().unwrap();
         }
     }
 }
 
 fn main() {
+    let mut task_runner = TaskRunner::new();
+    task_runner.add_task("Download Task 1".to_string(), 100, TaskType::Download);
+    task_runner.add_task("Generic Task 1".to_string(), 50, TaskType::Generic);
+    task_runner.add_task("Download Task 2".to_string(), 75, TaskType::Download);
+
     env_logger::init();
-    let mp = MultiProgress::new();
-    let (tx, rx) = channel();
-    let tasks = vec![
-        Task::new(&mp, "Task 1".to_string(), 100, TaskType::Download),
-        Task::new(&mp, "Task 2".to_string(), 50, TaskType::Generic),
-        Task::new(&mp, "Task 3".to_string(), 75, TaskType::Download),
-    ];
-
-    let shared_tasks = Arc::new(Mutex::new(tasks)); // Wrap the tasks in an Arc<Mutex>
-
-    let handles: Vec<_> = (0..shared_tasks.lock().unwrap().len())
-        .map(|i| {
-            let shared_tasks = shared_tasks.clone(); // Clone the Arc<Mutex> for each thread
-            let tx = tx.clone();
-            thread::spawn(move || {
-                let task = &shared_tasks.lock().unwrap()[i];
-                debug!("Starting task: {}", task.message);
-                task.run();
-                debug!("Completed task: {}", task.message);
-                tx.send(i).unwrap(); // Send the index of the completed task back to the main thread
-            })
-        })
-        .collect();
-
-    for _ in 0..handles.len() {
-        rx.recv().unwrap(); // Wait for all threads to complete
-    }
-
-    for handle in handles {
-        handle.join().unwrap(); // Wait for all threads to complete
-    }
+    task_runner.run_all();
 
     info!("All tasks completed");
 }
