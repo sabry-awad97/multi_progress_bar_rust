@@ -1,4 +1,5 @@
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
+use log::{debug, info};
 use std::sync::mpsc::{channel, Receiver};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -111,6 +112,7 @@ impl Task {
 }
 
 fn main() {
+    env_logger::init();
     let mp = MultiProgress::new();
     let (tx, rx) = channel();
     let tasks = vec![
@@ -127,7 +129,9 @@ fn main() {
             let tx = tx.clone();
             thread::spawn(move || {
                 let task = &shared_tasks.lock().unwrap()[i];
+                debug!("Starting task: {}", task.message);
                 task.run();
+                debug!("Completed task: {}", task.message);
                 tx.send(i).unwrap(); // Send the index of the completed task back to the main thread
             })
         })
@@ -140,4 +144,6 @@ fn main() {
     for handle in handles {
         handle.join().unwrap(); // Wait for all threads to complete
     }
+
+    info!("All tasks completed");
 }
