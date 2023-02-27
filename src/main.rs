@@ -1,4 +1,5 @@
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
+use std::sync::mpsc::Receiver;
 use std::thread;
 use std::time::Duration;
 
@@ -11,7 +12,8 @@ struct Task {
     progress_bar: ProgressBar,
     message: String,
     task_type: TaskType,
-    error: Option<String>, // New field to store an error message
+    error: Option<String>,           // New field to store an error message
+    cancel_rx: Option<Receiver<()>>, // New field to store a cancellation receiver
 }
 
 impl Task {
@@ -39,6 +41,7 @@ impl Task {
             message,
             task_type,
             error: None,
+            cancel_rx: None,
         }
     }
 
@@ -59,6 +62,11 @@ impl Task {
         self.progress_bar.set_message(self.message.clone());
     }
 
+    // New method to set a cancellation receiver
+    fn set_cancellation(&mut self, cancel_rx: Receiver<()>) {
+        self.cancel_rx = Some(cancel_rx);
+    }
+
     fn run(&self) {
         match self.task_type {
             TaskType::Download => {
@@ -66,6 +74,12 @@ impl Task {
                     if self.error.is_some() {
                         // If an error occurred, break out of the loop
                         break;
+                    }
+                    if self.cancel_rx.is_some() {
+                        // If a cancellation signal is received, break out of the loop
+                        if self.cancel_rx.as_ref().unwrap().try_recv().is_ok() {
+                            break;
+                        }
                     }
                     self.progress_bar.set_position(i);
                     thread::sleep(Duration::from_millis(50));
@@ -80,6 +94,14 @@ impl Task {
         if let Some(error_message) = &self.error {
             self.progress_bar
                 .finish_with_message(format!("{} failed: {}", self.message, error_message));
+        } else {
+            self.progress_bar
+                .finish_with_message(format!("{} finished", self.message));
+        }
+
+        if let Some(_) = &self.cancel_rx {
+            self.progress_bar
+                .finish_with_message(format!("{} cancelled", self.message));
         } else {
             self.progress_bar
                 .finish_with_message(format!("{} finished", self.message));
