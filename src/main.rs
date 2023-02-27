@@ -48,6 +48,17 @@ impl Task {
         self.progress_bar.abandon();
     }
 
+    // New method to update the progress bar style
+    fn set_style(&mut self, style: ProgressStyle) {
+        self.progress_bar.set_style(style);
+    }
+
+    // New method to update the progress bar message
+    fn set_message(&mut self, message: String) {
+        self.message = message;
+        self.progress_bar.set_message(self.message.clone());
+    }
+
     fn run(&self) {
         match self.task_type {
             TaskType::Download => {
