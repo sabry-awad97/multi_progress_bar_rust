@@ -1,5 +1,6 @@
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
-use std::sync::mpsc::Receiver;
+use std::sync::mpsc::{channel, Receiver};
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
@@ -110,32 +111,33 @@ impl Task {
 }
 
 fn main() {
-    let multi_progress = MultiProgress::new();
+    let mp = MultiProgress::new();
+    let (tx, rx) = channel();
+    let tasks = vec![
+        Task::new(&mp, "Task 1".to_string(), 100, TaskType::Download),
+        Task::new(&mp, "Task 2".to_string(), 50, TaskType::Generic),
+        Task::new(&mp, "Task 3".to_string(), 75, TaskType::Download),
+    ];
 
-    let task1 = Task::new(
-        &multi_progress,
-        "Downloading file 1".to_string(),
-        100,
-        TaskType::Download,
-    );
+    let shared_tasks = Arc::new(Mutex::new(tasks)); // Wrap the tasks in an Arc<Mutex>
 
-    let task2 = Task::new(
-        &multi_progress,
-        "Downloading file 2".to_string(),
-        200,
-        TaskType::Download,
-    );
-
-    let task3 = Task::new(&multi_progress, "Task 3".to_string(), 0, TaskType::Generic);
-
-    let tasks = vec![task1, task2, task3];
-
-    let handles: Vec<_> = tasks
-        .into_iter()
-        .map(|t| thread::spawn(move || t.run()))
+    let handles: Vec<_> = (0..shared_tasks.lock().unwrap().len())
+        .map(|i| {
+            let shared_tasks = shared_tasks.clone(); // Clone the Arc<Mutex> for each thread
+            let tx = tx.clone();
+            thread::spawn(move || {
+                let task = &shared_tasks.lock().unwrap()[i];
+                task.run();
+                tx.send(i).unwrap(); // Send the index of the completed task back to the main thread
+            })
+        })
         .collect();
 
+    for _ in 0..handles.len() {
+        rx.recv().unwrap(); // Wait for all threads to complete
+    }
+
     for handle in handles {
-        handle.join().unwrap();
+        handle.join().unwrap(); // Wait for all threads to complete
     }
 }
