@@ -11,6 +11,7 @@ struct Task {
     progress_bar: ProgressBar,
     message: String,
     task_type: TaskType,
+    error: Option<String>, // New field to store an error message
 }
 
 impl Task {
@@ -37,13 +38,24 @@ impl Task {
             progress_bar,
             message,
             task_type,
+            error: None,
         }
+    }
+
+    // New method to mark a task as failed
+    fn mark_failed(&mut self, error_message: String) {
+        self.error = Some(error_message);
+        self.progress_bar.abandon();
     }
 
     fn run(&self) {
         match self.task_type {
             TaskType::Download => {
                 for i in 0..self.progress_bar.length().unwrap() {
+                    if self.error.is_some() {
+                        // If an error occurred, break out of the loop
+                        break;
+                    }
                     self.progress_bar.set_position(i);
                     thread::sleep(Duration::from_millis(50));
                 }
@@ -54,8 +66,13 @@ impl Task {
                 thread::sleep(Duration::from_secs(5));
             }
         }
-        self.progress_bar
-            .finish_with_message(format!("{} finished", self.message));
+        if let Some(error_message) = &self.error {
+            self.progress_bar
+                .finish_with_message(format!("{} failed: {}", self.message, error_message));
+        } else {
+            self.progress_bar
+                .finish_with_message(format!("{} finished", self.message));
+        }
     }
 }
 
